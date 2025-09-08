@@ -59,7 +59,7 @@ static int MenuCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int wm_newmenu(void *menu, const char *cmd, const char *subcmd, Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   (void)menu;
   if (argc < 2 || argc % 2 != 0) {
-    Jim_WrongNumArgs(interp, 1, argv, "newmenu ITEM_NAME ITEM_DESCR ?... ...?");
+     Jim_WrongNumArgs(interp, 1, argv - 2, "newmenu ITEM_NAME ITEM_DESCR ?... ...?");
     return JIM_ERR;
   }
   const char *item, *desc;

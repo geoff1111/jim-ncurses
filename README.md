@@ -16,6 +16,10 @@ It exposes commands for:
 
 This manual documents all currently available commands and options, caveats to be aware of, and examples of use.
 
+Compile this extension using `cc -g -Os -fPIC -shared -Wall -Wextra -I/path/to/jim.h -o wtui.so wtui.c -lformw -lmenuw -lpanelw -lncursesw`
+
+NOTE: dependencies include JimTcl and ncursesw. On Debian 13, `sudo apt install libncurses-dev` which is currently version 6.5.
+
 ---
 
 ## 1. Initialization

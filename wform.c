@@ -63,7 +63,7 @@ static int FormCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int wf_newform(void *form, const char *cmd, const char *subcmd, Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   (void)form;
   if (argc < 5 || argc % 5 != 0) {
-    Jim_WrongNumArgs(interp, 1, argv, "newform FIELD_HT WD YBEGIN XBEGIN HIDDENROWS ?... ... ... ... ...?");
+    Jim_WrongNumArgs(interp, 1, argv - 2, "newform FIELD_HT WD YBEGIN XBEGIN HIDDENROWS ?... ... ... ... ...?");
     return JIM_ERR;
   }
   int nflist = argc / 5 + 1;

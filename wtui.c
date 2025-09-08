@@ -1,6 +1,5 @@
-/* wtui - A simple ncurses binding for the JimTcl interpreter
- *
- * Copyright (c) Geoffrey P. Messer, 2025.
+/* wtui - A simple ncurses extension for JimTcl, the embeddable 
+ *        Tcl interpreter
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +25,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * The views and conclusions contained in the software, documentation and licence
+ * The views and conclusions contained in the software and documentation
  * are those of the authors and should not be interpreted as representing
  * official policies, either expressed or implied, of the Jim Tcl Project.
  */
@@ -37,7 +36,6 @@
 #include <jim.h>
 
 #define NCURSES_WIDECHAR 1
-
 #include <ncursesw/panel.h>
 #include <ncursesw/menu.h>
 #include <ncursesw/form.h>
@@ -261,9 +259,9 @@ static int wt_update(void*,const char*,const char*,Jim_Interp*,int,Jim_Obj*const
 
 static int TuiCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   /* Special order required, get details using commands: 
-   *     cat wmenu.c | ./ckhash code '\{"([a-z]+)",' 0.7 1.5 > test1
-   *     cat wmenu.c | ./ckhash stats '\{"([a-z]+)",' 0.7 1.5 
-   * Then zz_ or z_ needs to be manually added to the function names */
+   *     cat wtui.c | ./ckhash code '\{"([a-z]+)",' 0.7 1.5 > test1
+   *     cat wtui.c | ./ckhash stats '\{"([a-z]+)",' 0.7 1.5 
+   * Then z_ or wt_ or wp_ or wm_ or wf_ need to be manually prepended to the function names */
   static SubCmd TuiSubcmds[] = {
     {"cursor", wt_cursor}, {"newpanel", wp_newpanel},
     {"update", wt_update}, {NULL, 0}, 
@@ -335,12 +333,12 @@ static int TuiCreateCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   RETURN_IF_ERR(initscr() == NULL, "%s: initialization failed (?tty problem?)", cmd);
   /* The following macros must not be used before initscr() is called. 
   * The array below (which trades extra memory for speed) is created by:
-  *     cat wtui.c | ./ckhash code '[^A-Z_](WACS_[A-Z_0-9]+)' 0.7 1.5 > test1
+  *     cat wtui.c | ./ckhash code '\{"(WACS_[A-Z_0-9]+)",' 0.7 1.5 > test1
   * 0.7 and 1.5 indicate to check "2-D" arrays with nRows between 0.7 * N and 
   * 1.5 * N where N is the number of macros. I.e. 0.7 relates to minRows and 
   * 1.5 relates to maxRows. In actuality, the array is not "2-D", but 
   * 1-dimensional. nRows and nCols obtained from output of:
-  *     cat wtui.c | ./ckhash stats '[^A-Z_](WACS_[A-Z_0-9]+)' 0.7 1.5 
+  *     cat wtui.c | ./ckhash stats '\{"(WACS_[A-Z_0-9]+)",' 0.7 1.5 
   * run ./ckhash for usage. */
   WacsMacro tmp[] = {
     {NULL, 0}, {NULL, 0},
@@ -436,9 +434,6 @@ static int TuiCreateCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   }
   raw();
   noecho();
-  /* escdelay is in ms. 25 is responsive, 50-100 ok for transmission 
-   * over serial line. The default of 1000 is too long. Delay allows
-   * disambiguation of <Esc> (ASCII 27) from keypad keys etc. */
   set_escdelay(escdelay);
   mousemask(ALL_MOUSE_EVENTS|REPORT_MOUSE_POSITION, NULL);
   /* static int */ initialized = 1;
@@ -507,12 +502,12 @@ static NCURSES_COLOR_T getColor(const char *name) {
 
 static int wt_colorpair(void *data, const char *cmd, const char *subcmd, Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   (void)data;
+  if (ncolors == 1) {
+    return JIM_OK;
+  }
   if (argc < 3 || argc % 3 != 0) {
     Jim_WrongNumArgs(interp, 1, argv - 2, "colorpair COLORPAIRNUM FGCOLORNAME BGCOLORNAME ?... ... ...?");
     return JIM_ERR;
-  }
-  if (ncolors == 1) {
-    return JIM_OK;
   }
   for (int i = 0; i < argc; i += 3) {
     long pair, colornum;
@@ -639,8 +634,8 @@ static int wt_size(void *data, const char *cmd, const char *subcmd, Jim_Interp *
 static attr_t zgetattr(const char *name) {
   /* Special order required below, by using the following commands to get the
    * array, and nCols and nRows. 
-   *     cat wpanel.c | ./ckhash code '[^A-Z_](WA_[A-Z]+)' 0.7 1.5
-   *     cat wpanel.c | ./ckhash stats '[^A-Z_](WA_[A-Z]+)' 0.7 1.5
+   *     cat wpanel.c | ./ckhash code '\{"(WA_[A-Z]+)",' 0.7 1.5
+   *     cat wpanel.c | ./ckhash stats '\{"(WA_[A-Z]+)",' 0.7 1.5
    * See /usr/include/ncurses.h for more info about these macros. */
   static AttrMacro TextAttributes[] = {
     {"WA_NORMAL", WA_NORMAL}, {"WA_TOP", WA_TOP},
@@ -672,7 +667,7 @@ static int wt_style(void *data, const char *cmd, const char *subcmd, Jim_Interp 
     return JIM_ERR;
   }
   long cp;
-  RETURN_IF_ERR(Jim_GetLong(interp, argv[0], &cp) != JIM_OK || (cp < 0 || cp > 255), "%s %s: \"%s\" invalid, expected COLORPAIR integer >= 0 and < 256", cmd, subcmd, Jim_String(argv[0]));
+  RETURN_IF_ERR(Jim_GetLong(interp, argv[0], &cp) != JIM_OK || (cp < 0 || cp > 255), "%s %s: \"%s\" invalid, expected COLORPAIR idx (0 < idx < 256)", cmd, subcmd, Jim_String(argv[0]));
   attr_t attr = COLOR_PAIR((int)cp);
   for (int i = 1; i < argc; ++i) {
     const char *name = Jim_String(argv[i]);

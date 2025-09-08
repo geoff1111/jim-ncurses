@@ -29,6 +29,7 @@
  * The views and conclusions contained in the software, documentation and licence
  * are those of the authors and should not be interpreted as representing
  * official policies, either expressed or implied, of the Jim Tcl Project.
+ */
 
 #define _XOPEN_SOURCE 700
 #include <wchar.h>

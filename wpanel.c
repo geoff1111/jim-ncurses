@@ -211,7 +211,7 @@ static int wp_drawline(void *data, const char *cmd, const char *subcmd, Jim_Inte
 }
 
 /* returns <keycode=0|1> <codepoint> <keyname>. In ndelay (non-blocking) can return more than one triple if there is extra chars to process.
-   in non-blocking mode (tui.create 1), returns {0 0 ""} if would block */
+   in non-blocking mode, returns {0 0 ""} if would block */
 static int wp_getch(void *data, const char *cmd, const char *subcmd, Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
   if (argc != 0) {
     Jim_WrongNumArgs(interp, 1, argv - 2, "getch");

@@ -492,6 +492,7 @@ Maps screen-relative coordinates into panel-relative ones.
 * **Borders:** `$panel border` only works on commands starting with `bpanel` (enforced in code).
 * **UTF-8 errors:** `$panel print` errors if input string is invalid UTF-8.
 * **Mouse coords:** Coordinates are relative to inner (panel working area), border (panel margin), or outer (screen) depending on where the click falls.
+* **Printing:** ncurses generally will not allow printing to the bottom right character cell of a terminal.
 
 ---
 

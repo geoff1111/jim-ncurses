@@ -1,1 +1,1044 @@
-# jim-ncurses
+# WTUI User Manual
+
+## Introduction
+
+`wtui` is a Jim Tcl extension that wraps **ncursesw** (wide-character curses) to provide higher-level Text User Interface (TUI) primitives in Tcl.
+It exposes commands for:
+
+* Initializing and destroying a TUI session
+* Handling colors and attributes as "styles"
+* Querying terminal size and column widths
+* Controlling cursor visibility
+* Updating the screen
+* Creating and deleting TUI objects (`wpanel`, `wmenu`, `wform`)
+
+This manual documents all currently available commands and options, caveats to be aware of, and examples of use.
+
+---
+
+## 1. Initialization
+
+### `newtui ?ndelay? ?escdelayms?`
+
+Creates a new TUI session and returns a command name (e.g., `tui1`) to be used for subsequent subcommands. The terminal is placed into raw mode, with no echo. Consequently, once this command is called, only WTUI commands should be used to output to the screen (avoid `puts` etc.)
+* **Arguments:**
+
+  * `ndelay` *(optional)*: Enable non-blocking input mode. Equivalent to ncurses `nodelay()`.
+  * `escdelayms` *(optional)*: Escape delay in milliseconds allows disambiguation of a bare \<Esc\> (ASCII 27) from keypad keys etc. Keypad keys deliver a multi-character sequence starting with ASCII 27. A 25ms delay is responsive (default), 50-100 is OK for transmission over a serial line. (The original ncurses default of 1000 is too long, but is not used by this package.)
+* **Returns:** A unique command name (`tuiN`).
+* **Errors:**
+
+  * `"newtui error: already active"` if another TUI session is already running.
+  * `"newtui: initialization failed (?tty problem?)"` if curses cannot initialize.
+
+**Example:**
+
+```tcl
+set tui [newtui]        ;# blocking mode
+set tui [newtui ndelay] ;# non-blocking mode
+```
+
+### Gotchas:
+
+* Only one TUI session can exist at a time.
+* Must be run inside a real TTY; may fail in environments without a proper terminal.
+
+---
+
+## 2. Session Management
+
+### `$tui delete`
+
+Deletes the TUI session, cleans up resources, and returns the terminal to its original usable state.  It does not clean up panel, menu or form resources, which must be individually deleted. Equivalent to `endwin()` in ncurses. 
+
+Failing to call this command before a script ends (e.g. because an uncaught error abruptly terminates the script) will leave the terminal in an unfriendly state. This may be rectified by typing the shell command `stty sane` followed by `^J`.
+
+* **Arguments:** None
+* **Example:**
+
+```tcl
+$tui delete
+```
+NOTE: to ensure `$tui delete` is called before a script exits, consider an appropriate `catch` construct, or set an exit script with `defer [list $tui delete]` immediately after using `newtui`.
+
+---
+
+## 3. Terminal Queries
+
+### `$tui size`
+
+Returns the terminal dimensions.
+
+* **Arguments:** None
+* **Result:** Tcl list of key-value pairs:
+
+  * `rows Y`
+  * `cols X`
+* **Example:**
+
+```tcl
+$tui size
+;# => {rows 24 cols 80}
+```
+
+### `$tui colwidth STRING`
+
+Computes the display width of a UTF-8 string (in character cells).
+
+* **Arguments:**
+  * `STRING`: UTF-8 text.
+
+* **Result:** Integer cell width.
+* **Errors:** If the string contains invalid UTF-8 or unprintable wide characters.
+* **Example:**
+
+```tcl
+$tui colwidth "ＡＢＣ"
+;# => 6  (each wide character = 2 cells)
+```
+
+---
+
+## 4. Cursor Control
+
+### `$tui cursor invisible|normal|hi-vis`
+
+Sets cursor visibility.
+
+* **Options:**
+
+  * `invisible` → hide cursor
+  * `normal` → standard visibility
+  * `hi-vis` → high-visibility mode (block cursor)
+* **Errors:**
+
+  * `"tui1 cursor: unknown visibility X"` if X is not one of the valid visibility options
+  * `"TTY does not support cursor X"` if curses errors upon requested mode.
+
+**Example:**
+
+```tcl
+$tui cursor invisible
+```
+
+---
+
+## 5. Colors
+
+### `$tui colordetail`
+
+Reports color system capabilities. This is important information when deciding how many colorpairs to define, and determining which colors are available to use, if supporting a variety of terminals.
+
+* **Returns:** Tcl list:
+
+  * `ncolors N`
+  * `ncolorpairs M`
+* **Example:**
+
+```tcl
+$tui colordetail
+;# => {ncolors 256 ncolorpairs 65536}
+```
+
+### `$tui colorpair COLORPAIRNUM FGCOLOR BGCOLOR ?... ... ...?`
+
+Defines one or more color pairs, assigning an integer as a index (0 to 255) for each pair. Each pair contains a foreground and a background color.
+
+* **Arguments (per triplet):**
+
+  * `COLORPAIRNUM`: integer 0–255
+  * `FGCOLOR`: integer (0–255) or color name
+  * `BGCOLOR`: integer (0–255) or color name
+
+* **Up to 16 color names supported:**
+
+  * `COLOR_BLACK`, `COLOR_RED`, `COLOR_GREEN`, `COLOR_YELLOW`, `COLOR_BLUE`, `COLOR_MAGENTA`, `COLOR_CYAN`, `COLOR_WHITE`
+  * Bright variants: `BRIGHT_BLACK`, `BRIGHT_RED`, etc.
+
+* **Up to 256 color integers supported; terminals typically utilize the xterm-256color mapping:**
+
+  * 0 to 7 equivalent to ncurses base color macros COLOR_\*.
+  * 8 to 15 equivalent to bright variants, here BRIGHT_\*.
+  * 16 to 231 refer to members of a 6x6x6 RGB color cube of formula 16 + 36 * R + 6 * G + B (where R, G and B range from 0 to 5). 
+  * 232 to 255 represent a 24 step grayscale ramp from near-black to near-white. 
+
+* **Errors:**
+
+  * Out-of-range pair numbers
+  * Invalid color name
+  * Unsupported on monochrome terminals; command instantly returns but does not raise an error (`ncolors == 1`)
+
+**Example:**
+
+```tcl
+$tui colorpair 1 COLOR_RED BRIGHT_BLACK
+$tui colorpair 2 253 0   ;# Using integer indices
+```
+
+### `$tui recolor COLORNAME R G B ?... ... ... ...?`
+
+Redefines RGB values of the 16 named colors (if terminal supports `can_change_color()`). This may have utility in providing alternate color schemes, such as "solarised".
+
+* **Arguments (per group):**
+
+  * `COLORNAME`: e.g., `COLOR_BLUE`, `BRIGHT_GREEN`
+  * `R G B`: integers 0–1000
+
+* **Returns:** 0 if terminal is monochrome or cannot change colors, and 1 on success.
+
+* **Errors:**
+
+  * If COLORNAME is unknown.
+  * If values are outside 0–1000 range.
+  * Color change fails.
+
+**Example:**
+
+```tcl
+$tui recolor COLOR_BLUE 0 0 800
+```
+
+---
+
+## 6. Styles and Attributes
+
+### `$tui style COLORPAIR ?ATTR ...?`
+
+Computes an attribute mask combining a color pair with optional attributes.
+
+* **Arguments:**
+
+  * `COLORPAIR`: integer (0–255)
+  * `ATTR`: zero or more from:
+    * `WA_BOLD`, `WA_DIM`, `WA_UNDERLINE`, `WA_REVERSE`, `WA_BLINK`, `WA_STANDOUT`, `WA_ALTCHARSET`, `WA_INVIS`, `WA_PROTECT`, `WA_ITALIC`
+    * Character highlights are available in ncurses, but the man page states that as of 2013, no terminal supports them: 
+      + `WA_LEFT`, `WA_RIGHT`, `WA_TOP`, `WA_LOW`, `WA_HORIZONTAL`, `WA_VERTICAL`
+
+* **Returns:** Integer attribute value usable in drawing functions.
+
+* **Errors:** Unknown attribute names.
+
+**Example:**
+
+```tcl
+set mystyle [$tui style 1 WA_BOLD WA_UNDERLINE]
+;# => numeric attribute mask
+```
+
+---
+
+## 7. Screen Refresh
+
+### `$tui update`
+
+Forces a screen redraw.
+
+* Calls `update_panels()` and `doupdate()`.
+* Required after making drawing changes.
+
+**Example:**
+
+```tcl
+$tui update
+```
+
+---
+
+## 8. Caveats & Gotchas
+
+* **Single-session only:** You cannot call `newtui` twice without `$tui delete`.
+* **Color limitations:** On monochrome or low-color terminals, color commands may silently do nothing or raise errors.
+* **Encoding issues:** `$tui colwidth` assumes valid UTF-8 input; invalid sequences error out.
+
+---
+
+# WPANEL
+
+## Introduction
+
+`wpanel` provides **windowed panels** inside a `wtui` session.
+Panels can be stacked, hidden, resized, styled, and drawn into using ncurses operations.
+Two panel types exist:
+
+* **`panelN`**: A standard panel with no border space (or, under the covers, no subwindow).
+* **`bpanelN`**: A panel with an interior subwindow, leaving margins (useful for bordered layouts).
+
+Each panel is represented as a Tcl command created by `$tui newpanel`.
+
+---
+
+## 1. Panel Creation
+
+### `$tui newpanel HEIGHT WIDTH YBEGIN XBEGIN ?TOPMARGIN BOTTOM LEFT RIGHT?`
+
+Creates a new panel.
+
+* **Arguments:**
+
+  * `HEIGHT WIDTH`: panel dimensions
+  * `YBEGIN XBEGIN`: screen coordinates (row, col)
+  * `TOPMARGIN BOTTOM LEFT RIGHT` *(optional)*: margins around an interior subwindow
+
+* **Returns:** Command name (`panelN` or `bpanelN`), where N is a unique integer
+
+* **Examples:**
+
+```tcl
+set p1 [$tui newpanel 10 40 0 0]          ;# Simple panel
+set p2 [$tui newpanel 15 50 2 5 1 1 2 2]  ;# Bordered panel with margins
+```
+
+* **Errors:**
+
+  * Margins leaving <2×2 interior.
+  * Negative dimensions or coordinates.
+  * Failure to allocate ncurses resources.
+
+---
+
+## 2. Panel Management
+
+### `$panel delete`
+
+Destroys the panel and frees its resources.
+
+### `$panel top`
+
+Brings the panel to the top of the stack.
+
+### `$panel bottom`
+
+Pushes the panel to the bottom.
+
+### `$panel hidden ?yes|no?`
+
+Shows or hides the panel.
+
+* Without argument → returns `0` (visible) or `1` (hidden).
+* With `yes|no` → toggles visibility.
+
+---
+
+## 3. Position & Size
+
+### `$panel position ?ROW COL?`
+
+Moves the panel.
+
+* No arguments → returns `{row col}` of current position.
+* With arguments → moves the panel to `(ROW, COL)`.
+
+### `$panel size ?ROWS COLS?`
+
+Resizes the panel.
+
+* No arguments → returns `{rows cols}` of current size.
+* With arguments → resizes the panel.
+* **Caveat:** Bordered (`bpanel`) panels also resize their subwindow. Errors if the new interior <2×2.
+
+---
+
+## 4. Cursor Handling
+
+### `$panel mvcursor ?ROW COL?`
+
+Moves or queries cursor position.
+
+* No args → returns `{row col}`.
+* With args → moves cursor within panel boundaries.
+* **Errors:** Out-of-bounds coordinates.
+
+---
+
+## 5. Drawing and Printing
+
+### `$panel border ?LEFTVERTICAL RIGHT TOPHORIZONTAL BOTTOM TOPLEFTCORNER TR BL BR?`
+
+Draws a border around the panel.
+
+* No args → default box-drawing characters.
+* With args → integers interpreted as Unicode code points for box-drawing respectively.
+* **Errors:** If arguments are non-integers or cannot be converted.
+
+### `$panel drawline right|down N ?CODEPOINT|WACS_MACRO?`
+
+Draws a horizontal (`right`) or vertical (`down`) line.
+
+* `N`: length
+* Optional char: integer code point or WACS macro (e.g. `WACS_HLINE`). Open wtui.c and search for `WACS_HLINE` to locate available macros).
+* Default = horizontal/vertical line macro.
+
+### `$panel print STRING`
+
+Prints a UTF-8 string at cursor position.
+
+### `$panel printalt WACS_MACRO`
+
+Prints a wide-character alternate symbol (from ncurses `WACS_*` set found in wtui.c).
+
+### `$panel insert line|CODE_PT`
+
+Inserts a line or a single character by Unicode code point.
+
+### `$panel clear screen|right|below|line|char`
+
+Clears parts of the panel.
+
+* `screen` → erase entire panel
+* `right` → clear to end of line
+* `below` → clear to bottom of panel
+* `line` → delete current line
+* `char` → delete character under cursor
+
+### `$panel scroll N`
+
+Scrolls the panel up by `N` lines (can be negative).
+
+---
+
+## 6. Styling
+
+### `$panel style STYLE`
+
+Sets current style (integer attribute mask, typically obtained from `$tui style`).
+
+### `$panel chgat NCHARS STYLE`
+
+Changes attributes for `NCHARS` characters from cursor using `STYLE`.
+
+* **Errors:** Out-of-bounds regions or invalid style.
+
+### `$panel focus ?border|inside?`
+
+Switches where drawing commands apply:
+
+* `border` → outer window
+* `inside` → subwindow (for `bpanel`), (actually an ncurses derwin, or derived window).
+* Returns the current focus.
+
+---
+
+## 7. Input Handling
+
+### `$panel getch`
+
+Reads input from panel.
+
+* Returns a list of triples:
+
+  * `{isKeycode codepoint keyname}`
+
+* Non-blocking mode (`ndelay`):
+
+  * Returns `{0 0 ""}` if no input available.
+  * May return multiple triples if multiple chars buffered.
+
+**Example:**
+
+```tcl
+$panel getch
+;# => {0 97 a}  (plain 'a')
+$panel getch
+;# => {0 1 ^A}  (Ctrl-A, or ASCII 1 .. Ctrl-N .. Ctrl-Z is ASCII 26)
+$panel getch
+;# => {1 xxx KEY_MOUSE}  (indicates a mouse event)
+$panel getch
+;# => {1 xxx KEY_DC}  (from memory, the Delete Character Key)
+$panel getch
+;# => {1 xxx KEY_F(1)}  (the F1 function key)
+```
+
+### `$panel mouse`
+
+Gets mouse event data.
+
+* Returns list containing:
+
+  * `event press|release|click|dclick|tclick`
+  * `button N` (0–3)
+  * `modifier ctrl|shift|alt|""`
+  * `loc inner|border|outer` (outer means outside the panel, border and inner are self explanatory)
+  * `row N col M`
+
+---
+
+## 8. Coordinate Transformation
+
+### `$panel trafo ROW COL`
+
+Maps screen-relative coordinates into panel-relative ones.
+
+* Returns `{loc inner|border|outer ?row N col M?}`.
+* **Note:** Must use *screen-relative* input coordinates (not panel-relative). This command helps determine which panel a mouse click affected.
+
+---
+
+## 9. Caveats & Gotchas
+
+* **BPanel focus:** By default, `bpanelN` commands affect the *inside* subwindow. Use `$panel focus border` to draw into margins.
+* **Resizing:** If you resize a `bpanel`, ensure new margins still allow ≥2×2 interior.
+* **`getch` blocking behavior:** In blocking mode, only one triple is returned. In non-blocking mode, all buffered input is drained.
+* **Borders:** `$panel border` only works on commands starting with `bpanel` (enforced in code).
+* **UTF-8 errors:** `$panel print` errors if input string is invalid UTF-8.
+* **Mouse coords:** Coordinates are relative to inner (panel working area), border (panel margin), or outer (screen) depending on where the click falls.
+
+---
+
+## 10. Example
+
+### Mouse event display
+
+```tcl
+set tui [newtui ndelay]
+set p [$tui newpanel 15 50 0 0]
+$p border
+$tui update
+
+while {1} {
+  set evt [$p getch]
+  append out $evt\n
+  if {$evt(keyname) eq "KEY_MOUSE"} {
+    append out [$p mouse]\n
+  }
+  if {$evt(keyname) eq "q"} {
+    break
+  }
+}
+$p delete
+$tui delete
+puts $out
+```
+
+---
+
+# WMENU
+
+## Introduction
+
+`wmenu` provides a wrapper around **ncurses menus**.
+Menus display lists of items (name + optional description) that can be navigated, selected, and customized interactively.
+
+A menu is represented as a Tcl command (`menuN`) created by `$tui newmenu`.
+It can be attached to a panel (`panelN` or `bpanelN`) for display and interaction.
+
+---
+
+## 1. Menu Creation
+
+### `$tui newmenu ITEM_NAME ITEM_DESCR ?ITEM_NAME ITEM_DESCR ...?`
+
+Creates a menu with one or more items.
+
+* **Arguments:**
+
+  * Each item requires two strings: `ITEM_NAME` and `ITEM_DESCR`
+  * `ITEM_DESCR` may be empty (`""`).
+
+* **Returns:** Command name (`menuN`).
+
+* **Examples:**
+
+```tcl
+set m [$tui newmenu "File" "Open/Save options" "Edit" "Cut/Copy/Paste" "Quit" ""]
+```
+
+* **Errors:**
+
+  * Fewer than two arguments.
+  * Odd number of arguments (items must have descriptions, even if empty strings).
+  * Memory allocation failure.
+
+---
+
+## 2. Attaching Menus to Panels
+
+### `$menu newpanel YBEGIN XBEGIN ?TOP BOTTOM LEFT RIGHT?`
+
+Creates and attaches a panel for the menu.
+
+* **Arguments:**
+
+  * `YBEGIN XBEGIN`: top-left screen coordinates.
+  * `TOP BOTTOM LEFT RIGHT`: optional margins.
+
+* **Returns:** A new panel command (`panelN` or `bpanelN`).
+
+* **Behavior:**
+
+  * Automatically sizes panel based on menu dimensions (ncurses `scale_menu()`).
+  * If margins are provided, creates a bordered panel (`bpanelN`).
+
+* **Errors:**
+
+  * Coordinates outside screen bounds.
+  * Margins too large to fit menu.
+  * Window/panel creation failure.
+
+**Example:**
+
+```tcl
+set p [$menu newpanel 2 5 1 1 1 1] ;# menu inside bordered panel
+```
+
+---
+
+## 3. Posting and Unposting
+
+### `$menu post`
+
+Displays (posts) the menu inside its associated panel.
+
+### `$menu unpost`
+
+Removes (unposts) the menu from display.
+
+* **Errors:** Fail if ncurses rejects post/unpost.
+
+---
+
+## 4. Menu Navigation & Input
+
+### `$menu driver CODEPOINT|ACTION`
+
+Sends input to the menu driver.
+
+* **Arguments:**
+
+  * `CODEPOINT`: integer (1–127) representing a character key.
+  * `ACTION`: one of ncurses request macros:
+
+    * Navigation: `REQ_UP_ITEM`, `REQ_DOWN_ITEM`, `REQ_LEFT_ITEM`, `REQ_RIGHT_ITEM`
+    * Jump: `REQ_FIRST_ITEM`, `REQ_LAST_ITEM`, `REQ_NEXT_ITEM`, `REQ_PREV_ITEM`
+    * Scrolling: `REQ_SCR_ULINE`, `REQ_SCR_DLINE`, `REQ_SCR_UPAGE`, `REQ_SCR_DPAGE`
+    * Searching: `REQ_BACK_PATTERN`, `REQ_NEXT_MATCH`, `REQ_PREV_MATCH`, `REQ_CLEAR_PATTERN`
+    * Selection: `REQ_TOGGLE_ITEM`
+    * Mouse: `KEY_MOUSE`
+* **Errors:**
+
+  * Unknown action string.
+  * Codepoint out of range.
+
+**Example:**
+
+```tcl
+$menu driver REQ_DOWN_ITEM
+$menu driver 113   ;# letter 'q'
+```
+
+---
+
+## 5. Menu Options
+
+### `$menu option on|off OPTION ?OPTION ...?`
+
+Enable or disable menu options.
+
+* **Options:**
+
+  * `O_ONEVALUE` → only one item can be selected
+  * `O_ROWMAJOR` → arrange items row-major instead of column-major
+  * `O_SHOWDESC` → show item descriptions
+  * `O_NONCYCLIC` → navigation stops at ends (no wraparound)
+  * `O_SHOWMATCH` → highlight matched search
+  * `O_IGNORECASE` → case-insensitive search
+  * `O_MOUSE_MENU` → enable mouse events
+
+* **Errors:**
+
+  * Unknown option name.
+  * Invalid on/off toggle.
+
+**Example:**
+
+```tcl
+$menu option on O_SHOWDESC O_MOUSE_MENU
+$menu option off O_IGNORECASE
+```
+
+---
+
+## 6. Menu Appearance
+
+### `$menu format ROWS COLS`
+
+Sets the display format (item rows × columns).
+
+* **Errors:** Invalid dimensions or ncurses failure.
+
+### `$menu mark STRING`
+
+Sets the marker string shown next to selected items.
+
+* Default is `"-"`.
+* Example: `$menu mark ">"`
+
+---
+
+## 7. Querying Menu State
+
+### `$menu getchoice`
+
+Returns indices of selected items.
+
+* If `O_ONEVALUE` → returns one index.
+* Otherwise → returns a list of indices of all marked items.
+
+### `$menu itemdetail INDEX`
+
+Returns `{NAME DESCRIPTION}` for a given item index.
+
+* Errors if index is out of range.
+
+---
+
+## 8. Deleting Menus
+
+### `$menu delete`
+
+Deletes the menu and frees resources.
+
+* Frees all items and descriptions.
+
+---
+
+## 9. Caveats & Gotchas
+
+* **Panel required:** Menus must be attached to a panel before posting.
+* **Resizing panels:** If the menu format is larger than the panel interior, it may not render properly.
+* **Driver behavior:**
+
+  * Codepoints outside 1–127 are rejected.
+  * Menu driver will handle `KEY_MOUSE` appropriately.
+
+* **Options:** Some options interact:
+
+  * `O_ONEVALUE` prevents toggling multiple items.
+  * `O_SHOWDESC` requires space in panel; descriptions may clip.
+
+* **Marks:** Must be short strings.
+
+* **Memory:** `$menu delete` must be called; otherwise memory leaks can occur.
+
+---
+
+## 10. Example
+
+### Simple menu in bordered panel
+
+```tcl
+set tui [newtui]
+set menu [$tui newmenu "Open" "Open a file" "Save" "Save current file" "Quit" ""]
+set panel [$menu newpanel 5 10 1 1 1 1]
+$menu post
+$tui update
+
+# Navigate with down key, select with space, quit on 'q'
+while {1} {
+    set ch [$panel getch]
+    if {[lindex $ch 1] eq 113} { ;# 'q'
+        break
+    }
+    $menu driver [lindex $ch 1]
+    $tui update
+}
+$menu unpost
+$menu delete
+$panel delete
+$tui delete
+```
+
+---
+
+# WFORM
+
+## Introduction
+
+`wform` provides a Tcl binding to the **ncurses form library**, allowing construction of text-based forms composed of multiple editable fields.
+Forms are useful for structured data entry, supporting validation, field options, and styled input.
+
+A form is represented as a Tcl command (`formN`) created by `$tui newform`.
+
+---
+
+## 1. Form Creation
+
+### `$tui newform FIELD_HT WD YBEGIN XBEGIN HIDDENROWS ?FIELD_HT WD YBEGIN XBEGIN HIDDENROWS ...?`
+
+Creates a new form with one or more fields.
+
+* **Arguments (per field):**
+
+  * `FIELD_HT`: field height (rows)
+  * `WD`: field width (columns)
+  * `YBEGIN`: row position of top-left corner
+  * `XBEGIN`: column position of top-left corner
+  * `HIDDENROWS`: number of hidden rows (for scrolling)
+
+* **Returns:** Command name (`formN`).
+
+* **Example:**
+
+```tcl
+set f [$tui newform 1 20 2 5 0  1 20 4 5 0]
+```
+
+* **Errors:**
+
+  * Argument count not multiple of 5.
+  * Invalid numeric values.
+  * Memory allocation failure.
+
+---
+
+## 2. Attaching Forms to Panels
+
+### `$form newpanel YBEGIN XBEGIN ?TOPMARGIN BOTTOM LEFT RIGHT?`
+
+Attaches the form to a new panel at `(YBEGIN, XBEGIN)`.
+
+* If margins are given → creates bordered panel (`bpanelN`).
+* Automatically sizes the panel to fit form dimensions.
+
+* **Errors:**
+
+  * Extents exceed screen size.
+  * Margins too large for available space.
+  * Window or subwindow creation failure.
+
+**Example:**
+
+```tcl
+set p [$form newpanel 1 1 1 1 1 1]
+```
+
+---
+
+## 3. Posting and Unposting
+
+### `$form post`
+
+Posts (displays) the form in its associated panel.
+
+### `$form unpost`
+
+Unposts (removes) the form from display.
+
+---
+
+## 4. Input and Navigation
+
+### `$form driver KEYCODE|REQ_MACRO`
+
+Feeds input to the form driver.
+
+* **Arguments:**
+
+  * ASCII codepoint (integer).
+  * Or a request macro (prefixed `REQ_`).
+
+* **Common Macros:**
+
+  * Navigation: `REQ_NEXT_FIELD`, `REQ_PREV_FIELD`, `REQ_FIRST_FIELD`, `REQ_LAST_FIELD`
+  * Scrolling: `REQ_SCR_FLINE`, `REQ_SCR_BLINE`, `REQ_SCR_FPAGE`, `REQ_SCR_BPAGE`
+  * Editing: `REQ_DEL_CHAR`, `REQ_DEL_LINE`, `REQ_CLR_EOL`, `REQ_CLR_EOF`
+  * Movement: `REQ_NEXT_CHAR`, `REQ_PREV_CHAR`, `REQ_UP_CHAR`, `REQ_DOWN_CHAR`
+  * Validation: `REQ_VALIDATION`
+
+* **Errors:**
+
+  * Unknown macro name.
+  * Invalid integer.
+
+**Example:**
+
+```tcl
+$form driver REQ_NEXT_FIELD
+$form driver 97 ;# 'a'
+```
+
+---
+
+## 5. Field Text
+
+### `$form fieldstr FIELD-IDX ?STRING?`
+
+Gets or sets field buffer contents.
+
+* **Arguments:**
+
+  * `FIELD-IDX`: index of field (0-based).
+  * Optional `STRING`: set field text.
+
+* **Returns:** Current field text.
+
+* **Errors:**
+
+  * Index out of range.
+  * Invalid UTF-8 string.
+
+---
+
+## 6. Styling
+
+### `$form background FIELD-IDX STYLE`
+
+Sets background attribute of a field.
+
+### `$form foreground FIELD-IDX ATTR ?ATTR ...?`
+
+Sets foreground attributes of a field.
+
+* **ATTR options:** same as `$tui style` attributes (e.g., `WA_BOLD`, `WA_UNDERLINE`).
+
+* **Errors:**
+
+  * Invalid index.
+  * Unknown attribute name.
+
+### `$form padding FIELD-IDX CHAR`
+
+Sets pad character for unused space in field.
+
+### `$form justify FIELD-IDX JUSTIFY_MACRO`
+
+Sets justification for a field.
+
+* **Macros:** `JUSTIFY_LEFT`, `JUSTIFY_RIGHT`, `JUSTIFY_CENTER`, `NO_JUSTIFICATION`.
+
+---
+
+## 7. Field Options
+
+### `$form fieldoption on|off FIELD-IDX OPTION ?... ...?`
+
+Controls options per field.
+
+* **Options:**
+
+  * `O_AUTOSKIP` → move to next field when full
+  * `O_STATIC` → fixed buffer size
+  * `O_DYNAMIC_JUSTIFY` → rejustifies field when modified
+  * `O_EDIT` → editable field
+  * `O_PASSOK` → validate on leaving field
+  * `O_WRAP` → wrap text to next line
+  * `O_BLANK` → blanks field on entry
+  * `O_NO_LEFT_STRIP` → do not strip leading blanks
+  * `O_PUBLIC` → visible input (vs hidden)
+  * `O_ACTIVE` → field participates in form
+  * `O_NULLOK` → empty field allowed
+  * `O_INPUT_LIMIT` → enforce buffer size
+  * `O_VISIBLE` → render visible
+  * `O_EDGE_INSERT_STAY`, etc.
+
+* **Errors:**
+
+  * Invalid field index.
+  * Unknown option.
+
+**Example:**
+
+```tcl
+$form fieldoption on 0 O_AUTOSKIP O_PUBLIC
+```
+
+---
+
+## 8. Form Options
+
+### `$form formoption on|off MACRO_NAME ?... ...?`
+
+Controls options applying to the whole form.
+
+* **Macros:**
+
+  * `O_BS_OVERLOAD` → backspace deletes characters
+  * `O_NL_OVERLOAD` → enter key moves to next field
+
+* **Errors:**
+
+  * Unknown macro name.
+  * Invalid toggle.
+
+---
+
+## 9. Validation
+
+### `$form validate FIELD-IDX TYPE ?ARGS...?`
+
+Applies a validation type to a field.
+
+* **Supported Types:**
+
+  * `TYPE_ALPHA MINWIDTH`
+  * `TYPE_ALNUM MINWIDTH`
+  * `TYPE_ENUM CASE-SENSITIVE-MATCH PARTIAL-MATCH-ACTIVE ENUMSTRING1 ENUM2 ...`
+  * `TYPE_INTEGER PRECISION MIN MAX`
+  * `TYPE_NUMERIC PREC MIN MAX`
+  * `TYPE_REGEXP REGEX`
+  * `TYPE_IPV4`
+
+* **Errors:**
+
+  * Wrong number of arguments.
+  * Unknown type.
+  * Invalid regex or enum list.
+
+**Example:**
+
+```tcl
+$form validate 0 TYPE_ALPHA 3
+$form validate 1 TYPE_NUMERIC 2 0 100
+```
+
+---
+
+## 10. Deleting Forms
+
+### `$form delete`
+
+Deletes the form and frees all associated fields.
+
+---
+
+## 11. Caveats & Gotchas
+
+* **Panel required:** Forms must be attached to a panel before posting.
+* **Driver differences:** `form_driver_w` is used internally; wide-char handling depends on correct UTF-8.
+* **Validation pitfalls:**
+
+  * `TYPE_ENUM` requires at least one enum string.
+  * `TYPE_IPV4` takes no extra args.
+  * Regex validation depends on libcurses regex implementation.
+
+* **Options precedence:** Field options may override form options.
+* **Padding:** Only single characters are valid as padding.
+* **Justification:** Only applies to fields of width >1.
+
+---
+
+## 12. Example
+
+### Simple login form
+
+```tcl
+set tui [newtui]
+set f [$tui newform 1 20 2 10 0  1 20 4 10 0]
+set p [$f newpanel 1 1 1 1 1 1]
+$f post
+$tui update
+
+# Loop: enter name and password, quit on ESC
+while {1} {
+    set ch [$p getch]
+    if {[lindex $ch 1] eq 27} { break } ;# ESC
+    $f driver [lindex $ch 1]
+    $tui update
+}
+$f unpost
+$f delete
+$p delete
+$tui delete
+```
+
+---
+

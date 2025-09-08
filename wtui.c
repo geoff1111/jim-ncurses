@@ -245,7 +245,6 @@ static int check_error(int status, Jim_Interp *interp, const char *cmd, const ch
   return JIM_ERR;    
 }
 
-// TODO: add attribute to calculate attributes
 static int z_delete(void*,const char*,const char*,Jim_Interp*,int,Jim_Obj*const*);
 static int wf_newform(void*,const char*,const char*,Jim_Interp*,int,Jim_Obj*const*);
 static int wm_newmenu(void*,const char*,const char*,Jim_Interp*,int,Jim_Obj*const*);

@@ -1,4 +1,5 @@
 #!./jimsh
+# requires `testhash`, compile `testhash.c` with `make testhash`
 
 proc hash {str} {
   return [exec ./testhash $str]

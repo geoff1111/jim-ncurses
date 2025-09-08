@@ -1,3 +1,4 @@
+// compile with `make testhash`
 #include <stdio.h>
 
 int hash(const char *key) {

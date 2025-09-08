@@ -4,7 +4,7 @@
 
 `wtui` is a draft Jim Tcl extension that wraps **ncursesw** (wide-character curses) to provide higher-level Text User Interface (TUI) primitives in Tcl.
 
-The idea is to have a base extension that is used by a high level extension written in pure JimTcl, possibly using the oo extension. The high level extension could
+The idea is to have this as a base extension that is used by a high level extension written in pure JimTcl, probably using Jim's oo extension. The high level extension could
 provide high level widgets, such as a vim-like editor, terminal widget, file selector and so forth.
 
 It is a very early version (0.1), and may contain bugs. None of it has been extensively tested, in particular the form component.

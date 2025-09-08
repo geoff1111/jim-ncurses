@@ -51,16 +51,6 @@
 
 #define RETURN_IF_NCERR(status) if (check_error((status), interp, cmd, subcmd) == JIM_ERR) { return JIM_ERR; }
 
-/*
-#define NULLCK(x) if ((x) == NULL) goto ALLOCPANIC;
-#define STRINGIFY(x) #x
-#define TOSTRING(x) STRINGIFY(x)
-#define NULLALLOC ALLOCPANIC: endwin(); \
-  fputs(__FILE__ ": " \
-  TOSTRING(__LINE__) ": " __func__ ": allocation fail", stderr); \
-  exit(1);
-*/
-
 typedef struct {
   const char *name;
   cchar_t *macro;
